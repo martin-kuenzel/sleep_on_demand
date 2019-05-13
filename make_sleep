@@ -1,0 +1,126 @@
+#!/bin/bash
+###########################################################################
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+##########################################################################
+
+IFS=$'\n';
+[ $(whoami) != "root" ] && { sudo $0 $@;exit 0; };
+
+success_action(){ # will be run on wakeup
+	NOWTST=$(date +%s)
+	echo $'Gäähn .... MOINMOIN !'
+	echo "It was "$( echo $[ $1 ]|awk '{print strftime("%c",$1)}')' before.'
+	echo "Now we have "$( echo $[ $NOWTST ]|awk '{print strftime("%c",$1)}')'.'
+	STIME=$[$NOWTST-$1]
+
+	## calculate the unit fitting for the sleeptime ##
+	UNITS=( "seconds" "minutes" "hours" ); # units
+	i=0; # pointer to a unit in $UNITS starting with secs (0)
+	while [ $(python -c "if $STIME>=60: print 1"$'\n'"else: print 0") -eq 1 ]; do 
+		STIME=$(python -c "print float($STIME/60)");
+		let i++;
+	done
+	UNIT=${UNITS[$i]}
+	[ $(python -c "if $STIME==1: print 1"$'\n'"else: print 0") -eq 1 ] && UNIT=$(echo ${UNITS[$i]}|sed 's|s$||');
+	echo "Sleeped "$(python -c "print $STIME")" $UNIT."
+	######
+}
+error(){ ## the error call
+	echo "Error:"
+	echo $'\t'"$1"
+}
+help(){ ## the help message
+	echo
+	echo $'  SYNTAX: make_sleep [OPTIONS]\n'
+	echo $'  -h : hours to wait until suspend\n  -m : minutes to wait until suspend\n  -s : seconds to wait until suspend';
+	echo $'  -t : a time in the future ( e.g. 2052-10-22 20:55:05, or 19:34:15 )';
+	echo
+}
+
+HRS=0;
+MIN=0;
+SEC=0;
+TIME=0;
+MTIME=0;
+
+while getopts "h:m:s:t:" opt 2>/dev/null; do
+	case $(echo $opt|awk '{print tolower($0)}') in
+	 h)
+	  HRS=$( echo $OPTARG|awk '{print tolower($1)}'|sed -e 's_[A-Z,a-z]__g');
+	  (printf '%d' "$HRS" 2>&1) >/dev/null;
+	  ret=$?
+	  [ $ret -eq 1 ] && { error "Wrong use";help; exit 1; };
+	  HRS=$[ $HRS*3600 ];
+	  MTIME=$[$MTIME+$HRS];
+	 ;;
+	 m)
+	  MIN=$( echo $OPTARG|awk '{print tolower($1)}'|sed -e 's_[A-Z,a-z]__g')
+	  (printf '%d' "$MIN" 2>&1) >/dev/null;
+	  ret=$?
+	  [ $ret -eq 1 ] && { error "Wrong use";help; exit 1; };
+	  MIN=$[ $MIN*60 ];
+	  MTIME=$[$MTIME+$MIN];
+	 ;;
+	 s)
+	  SEC=$( echo $OPTARG|awk '{print tolower($1)}'|sed -e 's_[A-Z,a-z]__g');
+	  (printf '%d' "$SEC" 2>&1) >/dev/null;
+	  ret=$?
+	  [ $ret -eq 1 ] && { error "Wrong use";help; exit 1; };
+	  MTIME=$[$MTIME+$SEC];
+	 ;;
+	 t)
+	  TIME=$( date -d "$OPTARG" +"%s" 2>/dev/null);
+	  (printf '%d' "$TIME" 2>&1) >/dev/null;
+	  ret=$?
+	  [ $ret -eq 1 ] && { error "Wrong use";help; exit 1; };
+	 ;;
+	?) error "Wrong use"; help; exit 1 
+	;;
+	esac
+done
+
+NOWTST=$(date +'%s');
+USR=$USER;
+
+{ [ "$TIME" != "0" ] && [ "$MTIME" != "0" ]; } && {
+	echo $'Too many options. Choose one:\n\t1: '$(echo "scale=2;"$(echo $TIME/60)|bc)$' minutes\n\t2: '$(echo "scale=2;"$(echo $MTIME/60)|bc)$' minutes\ndefault:1';
+	read -n 1 -s LINE
+	[ "$LINE" == "2" ] && TIME=$MTIME;
+};
+[ "$TIME" == "0" ] && TIME=$[$NOWTST+$MTIME];
+[ "$TIME" == "0" ] && { help; exit 0; };
+
+SDATE=$( echo $[ $TIME ]|awk '{print strftime("%c",$1)}')
+NDATE=$( echo $[ $NOWTST ]|awk '{print strftime("%c",$1)}')
+
+echo "We have $NDATE right now."
+
+[ $[ $TIME-$NOWTST ] -lt 0 ] && { error "Sleeptime can not be in the past ($SDATE)."; exit 1; }
+
+echo "Suspending at $SDATE."
+sleep_action(){
+	TIME=$1
+	NOWTST=$2
+	echo 'Access granted. Please keep this terminal opened.';
+	sleep $[$TIME-$NOWTST];
+	echo $'Suspending ...\nN8 DUDE !'
+	su $USR -c '(killall kaffeine) 2>/dev/null' ## kaffeine blocks suspending
+	pm-suspend
+	return $?
+};
+sleep_action "$TIME" "$NOWTST";
+[ $[$TIME] -gt $( date +%s ) ] && {  exit 1; };
+success_action "$TIME"
+
+exit 0

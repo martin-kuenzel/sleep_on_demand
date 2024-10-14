@@ -15,7 +15,7 @@
 ##########################################################################
 
 IFS=$'\n';
-[ $(whoami) != "root" ] && { echo "You need to be root to run this script"; exit 1; } #{ sudo $0 $@;exit 0; };
+[ $(whoami) != "root" ] && { echo "You need to be root to run this script"; exit 1; }
 
 success_action(){ # will be run on wakeup
 	NOWTST=$(date +%s)
@@ -25,15 +25,24 @@ success_action(){ # will be run on wakeup
 	STIME=$[$NOWTST-$1]
 
 	## calculate the unit fitting for the sleeptime ##
-	UNITS=( "seconds" "minutes" "hours" ); # units
-	i=0; # pointer to a unit in $UNITS starting with secs (0)
-	while [ $(python -c "if $STIME>=60: print 1"$'\n'"else: print 0") -eq 1 ]; do 
-		STIME=$(python -c "print float($STIME/60)");
-		let i++;
-	done
-	UNIT=${UNITS[$i]}
-	[ $(python -c "if $STIME==1: print 1"$'\n'"else: print 0") -eq 1 ] && UNIT=$(echo ${UNITS[$i]}|sed 's|s$||');
-	echo "Sleeped "$(python -c "print $STIME")" $UNIT."
+	UNITS="seconds minutes hours"
+	awk ' 
+	{
+	 split('${UNITS}', UNITS); i=0; s='${STIME}';
+	 while (s >= 60 && i < length(UNITS)) {s/=60; i++;};
+	 if (UNITS[i] == 1) sub(/s$/, "", UNITS[i]); 
+	 print "Sleeped", s, UNITS[i];
+	}' <<< echo
+
+#	UNITS=( "seconds" "minutes" "hours" ); # units
+#	i=0; # pointer to a unit in $UNITS starting with secs (0)
+#	while [ $(python -c "if $STIME>=60: print(1)"$'\n'"else: print(0)") -eq 1 ]; do 
+#		STIME=$(python -c "print(float($STIME/60))");
+#		let i++;
+#	done
+#	UNIT=${UNITS[$i]}
+#	[ $(python -c "if $STIME==1: print(1)"$'\n'"else: print(0)") -eq 1 ] && UNIT=$(echo ${UNITS[$i]}|sed 's|s$||');
+#	echo "Sleeped "$(python -c "print($STIME)")" $UNIT."
 	######
 }
 error(){ ## the error call
@@ -45,6 +54,7 @@ help(){ ## the help message
 	echo $'  SYNTAX: make_sleep [OPTIONS]\n'
 	echo $'  -h : hours to wait until suspend\n  -m : minutes to wait until suspend\n  -s : seconds to wait until suspend';
 	echo $'  -t : a time in the future ( e.g. 2052-10-22 20:55:05, or 19:34:15 )';
+	echo $'  -d : dry-run'
 	echo
 }
 
@@ -53,8 +63,9 @@ MIN=0;
 SEC=0;
 TIME=0;
 MTIME=0;
+DRYRUN=0;
 
-while getopts "h:m:s:t:" opt 2>/dev/null; do
+while getopts "h:m:s:t:d" opt 2>/dev/null; do
 	case $(echo $opt|awk '{print tolower($0)}') in
 	 h)
 	  HRS=$( echo $OPTARG|awk '{print tolower($1)}'|sed -e 's_[A-Z,a-z]__g');
@@ -85,6 +96,10 @@ while getopts "h:m:s:t:" opt 2>/dev/null; do
 	  ret=$?
 	  [ $ret -eq 1 ] && { error "Wrong use";help; exit 1; };
 	 ;;
+	d)
+	 DRYRUN=1;
+	 echo "dry-run active..."
+	;;
 	?) error "Wrong use"; help; exit 1 
 	;;
 	esac
@@ -115,8 +130,14 @@ sleep_action(){
 	echo 'Access granted. Please keep this terminal opened.';
 	sleep $[$TIME-$NOWTST];
 	echo $'Suspending ...\nN8 DUDE !'
-	su $USR -c '(killall kaffeine) 2>/dev/null' ## kaffeine blocks suspending
-	pm-suspend
+	[ ${DRYRUN} -eq 0 ] && {
+		su $USR -c '(killall kaffeine) 2>/dev/null'; ## kaffeine blocks suspending ## TODO: check if valid anymore (2024-10-14)
+		pm-suspend;
+	}
+	[ ${DRYRUN} -eq 1 ] && {
+		echo "dryrun active, Simulating suspend time of 5 Seconds..."; 
+		sleep 5;
+	}
 	return $?
 };
 sleep_action "$TIME" "$NOWTST";

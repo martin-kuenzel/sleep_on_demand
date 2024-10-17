@@ -28,7 +28,7 @@ success_action(){ # will be run on wakeup
 	UNITS="seconds minutes hours"
 	awk ' 
 	{
-	 split('${UNITS}', UNITS); i=0; s='${STIME}';
+	 split("'${UNITS}'", UNITS); i=1; s='${STIME}';
 	 while (s >= 60 && i < length(UNITS)) {s/=60; i++;};
 	 if (UNITS[i] == 1) sub(/s$/, "", UNITS[i]); 
 	 print "Sleeped", s, UNITS[i];
